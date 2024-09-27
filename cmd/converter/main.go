@@ -18,12 +18,6 @@ import (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "app",
-	Short: "Currency converter using CoinMarketCap API",
-	Long:  `A CLI tool to convert one currency to another using CoinMarketCap API as a data source.`,
-}
-
-var convertCmd = &cobra.Command{
 	Use:   "convert [amount] [from_currency] [to_currency]",
 	Short: "Converts currency from one to another",
 	Long: `Converts the specified amount from the source currency to the target currency 
@@ -54,9 +48,9 @@ func main() {
 
 	client := coinmarketcap.NewClient(apiKey)
 	c := converter.New(client)
-	a := app.NewApp(c)
+	a := app.New(c)
 
-	convertCmd.RunE = func(cmd *cobra.Command, args []string) error {
+	rootCmd.RunE = func(cmd *cobra.Command, args []string) error {
 		result, err := a.HandleConvert(cmd.Context(), args[0], args[1], args[2])
 		if err != nil {
 			return err
@@ -66,8 +60,6 @@ func main() {
 
 		return nil
 	}
-
-	rootCmd.AddCommand(convertCmd)
 
 	eg, ctx := errgroup.WithContext(backgroundCtx)
 

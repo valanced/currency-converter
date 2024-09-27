@@ -20,7 +20,7 @@ type App struct {
 	converter CurrencyConverter
 }
 
-func NewApp(converter CurrencyConverter) *App {
+func New(converter CurrencyConverter) *App {
 	return &App{converter: converter}
 }
 
