@@ -4,10 +4,13 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/valanced/currency-converter/internal/api/coinmarketcap"
 	"github.com/valanced/currency-converter/internal/app"
@@ -35,8 +38,13 @@ func main() {
 	}
 	defer logger.Sync()
 
-	ctx := ctxzap.ToContext(context.Background(), logger)
-	rootCmd.SetContext(ctx)
+	backgroundCtx, cancel := context.WithCancel(context.Background())
+	backgroundCtx = ctxzap.ToContext(backgroundCtx, logger)
+
+	signalChan := make(chan os.Signal, 1)
+	signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM)
+
+	rootCmd.SetContext(backgroundCtx)
 
 	apiKey := os.Getenv("COINMARKETCAP_API_KEY")
 	if apiKey == "" {
@@ -49,7 +57,7 @@ func main() {
 	a := app.NewApp(c)
 
 	convertCmd.RunE = func(cmd *cobra.Command, args []string) error {
-		result, err := a.HandleConvert(cmd.Context(), args)
+		result, err := a.HandleConvert(cmd.Context(), args[0], args[1], args[2])
 		if err != nil {
 			return err
 		}
@@ -61,8 +69,28 @@ func main() {
 
 	rootCmd.AddCommand(convertCmd)
 
-	if err := rootCmd.Execute(); err != nil {
-		fmt.Println(err)
-		os.Exit(1)
+	eg, ctx := errgroup.WithContext(backgroundCtx)
+
+	eg.Go(func() error {
+		select {
+		case <-ctx.Done():
+			return nil
+		case sig := <-signalChan:
+			ctxzap.Extract(ctx).Error("received signal", zap.Error(err), zap.Any("signal", sig))
+			return err
+		}
+	})
+
+	eg.Go(func() error {
+		if err := rootCmd.Execute(); err != nil {
+			return err
+		}
+		cancel()
+
+		return nil
+	})
+
+	if err := eg.Wait(); err != nil {
+		ctxzap.Extract(backgroundCtx).Error("eg.Wait", zap.Error(err))
 	}
 }
